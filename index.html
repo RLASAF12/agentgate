@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentGate — Human-in-the-Loop for AI Agent Actions</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+    @keyframes pulse-ring { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+    .analyzing { animation: pulse-ring 1.2s ease-in-out infinite; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-900 rounded-2xl p-6 w-full max-w-md border border-gray-700 shadow-2xl">
+      <h2 class="text-base font-semibold mb-4 flex items-center gap-2">⚙ Settings</h2>
+      <label class="block text-sm text-gray-400 mb-1">Gemini API Key</label>
+      <input id="api-key-input" type="password" placeholder="AIza..."
+        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm mb-1 focus:outline-none focus:border-indigo-500">
+      <p class="text-xs text-gray-500 mb-5">Stored locally in your browser. Required for custom scenarios. <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-indigo-400 underline">Get a free key →</a></p>
+      <div class="flex gap-2">
+        <button onclick="saveSettings()" class="flex-1 bg-indigo-600 hover:bg-indigo-500 rounded-xl py-2.5 text-sm font-semibold transition-colors">Save</button>
+        <button onclick="hideSettings()" class="flex-1 bg-gray-800 hover:bg-gray-700 rounded-xl py-2.5 text-sm transition-colors">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="border-b border-gray-800 px-4 py-3">
+    <div class="max-w-2xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-sm">⛩</div>
+        <span class="font-semibold text-sm tracking-tight">AgentGate</span>
+        <span class="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">Human-in-the-Loop</span>
+      </div>
+      <button onclick="showSettings()" class="text-gray-500 hover:text-gray-300 text-xs flex items-center gap-1 transition-colors">
+        ⚙ API Key
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-2xl mx-auto px-4 py-8">
+
+    <!-- Hero -->
+    <div class="text-center mb-8">
+      <h1 class="text-2xl font-bold mb-2 leading-tight">
+        Before the agent acts,<br><span class="text-indigo-400">you decide.</span>
+      </h1>
+      <p class="text-gray-400 text-sm max-w-md mx-auto leading-relaxed">
+        Paste any agent action — email sends, database updates, file deletions, payments — and get a structured approval card with full context. Approve or reject in one tap.
+      </p>
+    </div>
+
+    <!-- Input Card -->
+    <div class="bg-gray-900 rounded-2xl border border-gray-800 p-5 mb-5">
+      <label class="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wider">What is the agent about to do?</label>
+      <textarea id="action-input" rows="3"
+        placeholder="e.g. Send a delay notification email to our top client Acme Corp regarding their order..."
+        class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 resize-none mb-4 placeholder-gray-600 leading-relaxed"></textarea>
+
+      <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+        <button onclick="generateCard()" id="generate-btn"
+          class="bg-indigo-600 hover:bg-indigo-500 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shrink-0">
+          Generate Approval Card
+        </button>
+        <span class="text-gray-600 text-xs">or try a scenario:</span>
+      </div>
+
+      <!-- Demo chips -->
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button onclick="loadDemo(0)" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 py-1.5 rounded-full text-gray-300 transition-all">📧 Client email</button>
+        <button onclick="loadDemo(1)" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 py-1.5 rounded-full text-gray-300 transition-all">🗑 Delete files</button>
+        <button onclick="loadDemo(2)" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 py-1.5 rounded-full text-gray-300 transition-all">👤 Deactivate account</button>
+        <button onclick="loadDemo(3)" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 py-1.5 rounded-full text-gray-300 transition-all">📢 LinkedIn post</button>
+        <button onclick="loadDemo(4)" class="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 py-1.5 rounded-full text-gray-300 transition-all">💸 Wire transfer</button>
+      </div>
+    </div>
+
+    <!-- Analyzing state -->
+    <div id="analyzing-area" class="hidden bg-gray-900 rounded-2xl border border-gray-800 p-10 text-center mb-5">
+      <div class="analyzing inline-block w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full mb-3"></div>
+      <p class="text-gray-400 text-sm">Analyzing agent action...</p>
+    </div>
+
+    <!-- Approval Card -->
+    <div id="card-area" class="hidden mb-5"></div>
+
+    <!-- Decision confirmation -->
+    <div id="confirm-area" class="hidden mb-5"></div>
+
+    <!-- Session log -->
+    <div id="log-section" class="hidden">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-xs font-medium text-gray-500 uppercase tracking-wider">Session Decision Log</h3>
+        <span id="log-count" class="text-xs text-gray-600"></span>
+      </div>
+      <div class="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-gray-800 text-gray-600">
+              <th class="px-4 py-2.5 text-left font-normal">Time</th>
+              <th class="px-4 py-2.5 text-left font-normal">Action</th>
+              <th class="px-4 py-2.5 text-left font-normal">Risk</th>
+              <th class="px-4 py-2.5 text-left font-normal">Decision</th>
+            </tr>
+          </thead>
+          <tbody id="log-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-gray-900 px-4 py-4 mt-8">
+    <div class="max-w-2xl mx-auto text-center">
+      <p class="text-gray-700 text-xs">
+        AgentGate — an open prototype by <a href="https://harelasaf.com" target="_blank" class="text-gray-600 hover:text-gray-400">Harel Asaf</a> ·
+        <a href="https://github.com/RLASAF12/agentgate" target="_blank" class="text-gray-600 hover:text-gray-400">GitHub</a>
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // ─── Demo data ───────────────────────────────────────────────────────────
+    const DEMO_INPUTS = [
+      "Send an email to Acme Corp (our #1 revenue client) notifying them of a 3-day delay in their order delivery due to supply chain issues.",
+      "Permanently delete 47 temporary files from the /uploads/temp directory, including files that are over 2 hours old.",
+      "Update the database record for user ID 4829 to set their account status to inactive and revoke all active API tokens.",
+      "Post a LinkedIn update on behalf of our CEO announcing the new Enterprise pricing tier starting at $2,400/month.",
+      "Initiate a $4,200 wire transfer to vendor account ending in 3847 for invoice INV-2026-0412."
+    ];
+
+    const DEMO_CARDS = [
+      {
+        action_summary: "Send delivery delay notification to key client Acme Corp",
+        risk_level: "medium",
+        risk_reasoning: "Top-revenue client relationship at stake — tone and timing of this message directly affect retention risk.",
+        agent_reasoning: "Order tracking flagged a 3-day fulfillment delay on Acme Corp's active order. Per escalation policy, Tier 1 clients must be notified within 4 hours of a confirmed delay. I drafted the notification using the approved delay communication template.",
+        if_approved: "Email sends immediately from your account. Acme Corp's account manager is CC'd automatically. The order is flagged 'client-notified' in the CRM and follow-up escalation timers pause for 48 hours.",
+        if_rejected: "Email is not sent. The draft is saved to your Outbox for manual review. The 4-hour SLA timer keeps running — you have approximately 2 hours before the system auto-escalates to your VP of Customer Success.",
+        recommendation: "approve",
+        recommendation_reasoning: "Approved template, time-sensitive SLA — delaying puts the client relationship at greater risk than sending."
+      },
+      {
+        action_summary: "Permanently delete 47 temporary upload files (12.3 MB)",
+        risk_level: "low",
+        risk_reasoning: "Files are in the designated temp directory and all exceed the 2-hour retention window — standard cleanup within policy.",
+        agent_reasoning: "The nightly cleanup job scanned /uploads/temp and identified 47 files older than 2 hours. Per the data retention policy, temp files must not persist beyond this window. I flagged this batch for approval because it exceeds the 30-file auto-approve threshold.",
+        if_approved: "47 files are permanently deleted. 12.3 MB of storage is reclaimed. Deletion is logged to the audit trail with file names and timestamps.",
+        if_rejected: "Files remain on disk. The cleanup job pauses for this batch. You can schedule a manual review before the next cleanup cycle runs tomorrow at 02:00.",
+        recommendation: "approve",
+        recommendation_reasoning: "Routine policy-compliant cleanup — blocking it only creates storage backlog with no security or data benefit."
+      },
+      {
+        action_summary: "Deactivate user account #4829 and revoke all API credentials",
+        risk_level: "high",
+        risk_reasoning: "Account deactivation is immediately irreversible and cuts off any active integrations — misidentification has serious consequences.",
+        agent_reasoning: "User ID 4829 triggered 3 consecutive failed authentication attempts followed by unusual API access patterns across 6 endpoints in 4 minutes. The anomaly detector scored this as a likely compromised account. Per security policy, suspected compromised accounts are queued for deactivation review within 1 hour.",
+        if_approved: "Account is deactivated immediately. All active API tokens are invalidated. Any live sessions are terminated. User receives a notification email. Reactivation requires a manual admin review and identity verification.",
+        if_rejected: "Account stays active. A security alert is escalated to your SOC team. The anomaly detector continues monitoring in high-sensitivity mode. Recommend completing a manual security review within the next 30 minutes.",
+        recommendation: "review",
+        recommendation_reasoning: "High-impact and irreversible action — confirm this is the correct user ID and not a false positive before proceeding."
+      },
+      {
+        action_summary: "Publish CEO LinkedIn post announcing Enterprise tier at $2,400/month",
+        risk_level: "high",
+        risk_reasoning: "Public pricing announcement is externally visible, affects active sales negotiations, and cannot be easily retracted.",
+        agent_reasoning: "The content calendar designated today as the approved launch date for the Enterprise tier announcement. I drafted the post from the approved messaging brief. The CEO's LinkedIn account is authenticated and the post is scheduled for 09:00 local time.",
+        if_approved: "Post goes live immediately on the CEO's LinkedIn. The full announcement series activates on schedule. The sales team receives a Slack notification to prepare for inbound pricing inquiries.",
+        if_rejected: "Post is not published. Draft is preserved for manual review. The content calendar flags today's slot as 'missed' and notifies the marketing team to reschedule.",
+        recommendation: "approve",
+        recommendation_reasoning: "Approved date, pre-approved copy — but given that pricing is publicly visible and affects live deals, a final human sign-off is the right call before any pricing announcement."
+      },
+      {
+        action_summary: "Initiate $4,200 wire transfer to vendor account ending in 3847",
+        risk_level: "high",
+        risk_reasoning: "Wire transfers are irreversible. This amount exceeds the $2,000 autonomous-spend threshold and requires explicit human authorization.",
+        agent_reasoning: "Invoice INV-2026-0412 from vendor account 3847 matched against approved purchase order PO-2026-0198 in the AP system. Payment terms show the invoice is due today. I queued the transfer per the accounts payable automation workflow.",
+        if_approved: "Wire transfer initiates immediately. Typically clears within 1–2 business days. Vendor receives automated notification. Invoice is marked 'paid' in the accounting system and reconciled against the PO.",
+        if_rejected: "Transfer is cancelled. Invoice remains open and overdue. Vendor receives no notification. You can reschedule the payment manually through the AP portal or flag the invoice for additional review.",
+        recommendation: "review",
+        recommendation_reasoning: "Any wire transfer above $2,000 requires explicit human sign-off — verify the destination account number matches vendor records before approving."
+      }
+    ];
+
+    // ─── State ────────────────────────────────────────────────────────────────
+    const decisionLog = [];
+    let currentCard = null;
+
+    // ─── Settings ────────────────────────────────────────────────────────────
+    function showSettings() { document.getElementById('settings-modal').classList.remove('hidden'); }
+    function hideSettings() { document.getElementById('settings-modal').classList.add('hidden'); }
+    function saveSettings() {
+      const key = document.getElementById('api-key-input').value.trim();
+      if (key) localStorage.setItem('agentgate_gemini_key', key);
+      hideSettings();
+    }
+    window.addEventListener('load', () => {
+      const saved = localStorage.getItem('agentgate_gemini_key');
+      if (saved) document.getElementById('api-key-input').value = saved;
+    });
+
+    // ─── Demo ─────────────────────────────────────────────────────────────────
+    function loadDemo(idx) {
+      document.getElementById('action-input').value = DEMO_INPUTS[idx];
+      generateCard(DEMO_CARDS[idx]);
+    }
+
+    // ─── Generate card ────────────────────────────────────────────────────────
+    async function generateCard(demoData = null) {
+      const input = document.getElementById('action-input').value.trim();
+      if (!input) {
+        document.getElementById('action-input').classList.add('border-red-700');
+        setTimeout(() => document.getElementById('action-input').classList.remove('border-red-700'), 1500);
+        return;
+      }
+
+      const btn = document.getElementById('generate-btn');
+      btn.disabled = true;
+      btn.textContent = 'Analyzing…';
+
+      document.getElementById('card-area').classList.add('hidden');
+      document.getElementById('confirm-area').classList.add('hidden');
+      document.getElementById('analyzing-area').classList.remove('hidden');
+
+      let cardData;
+
+      if (demoData) {
+        await new Promise(r => setTimeout(r, 900));
+        cardData = demoData;
+      } else {
+        const apiKey = localStorage.getItem('agentgate_gemini_key');
+        if (!apiKey) {
+          document.getElementById('analyzing-area').classList.add('hidden');
+          document.getElementById('card-area').classList.remove('hidden');
+          document.getElementById('card-area').innerHTML = `
+            <div class="bg-yellow-950 border border-yellow-800 rounded-2xl p-5 text-sm fade-in">
+              <p class="text-yellow-400 font-medium mb-1">⚠ Gemini API key not set</p>
+              <p class="text-gray-400 text-xs mb-3">Add your free Gemini API key to analyze custom scenarios, or try one of the demo buttons above.</p>
+              <button onclick="showSettings()" class="text-xs bg-yellow-900 hover:bg-yellow-800 border border-yellow-700 px-3 py-2 rounded-lg text-yellow-300 transition-colors">Add API Key →</button>
+            </div>`;
+          btn.disabled = false;
+          btn.textContent = 'Generate Approval Card';
+          return;
+        }
+
+        try {
+          const prompt = `You are an AI agent action analyzer for a human-in-the-loop approval system.
+
+Analyze the following agent action and return ONLY valid JSON — no markdown, no explanation, no code fences.
+
+Agent action: "${input}"
+
+Return exactly this JSON structure:
+{
+  "action_summary": "One sentence: plain-English description of what the agent will do (be specific)",
+  "risk_level": "low",
+  "risk_reasoning": "One sentence explaining why this risk level",
+  "agent_reasoning": "2-3 sentences from the agent perspective: why it decided to take this action",
+  "if_approved": "2-3 sentences: specific concrete outcomes if the human approves",
+  "if_rejected": "2-3 sentences: what happens instead if the human rejects",
+  "recommendation": "approve",
+  "recommendation_reasoning": "One sentence: why you recommend this"
+}
+
+Rules:
+- risk_level must be exactly: "low", "medium", or "high"
+- recommendation must be exactly: "approve", "reject", or "review"
+- Be specific about real consequences — no vague language
+- if_rejected should describe a concrete fallback, not just "nothing happens"`;
+
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.3, maxOutputTokens: 800 }
+              })
+            }
+          );
+
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error?.message || `HTTP ${res.status}`);
+          }
+
+          const data = await res.json();
+          const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const cleaned = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+          cardData = JSON.parse(cleaned);
+        } catch (err) {
+          document.getElementById('analyzing-area').classList.add('hidden');
+          document.getElementById('card-area').classList.remove('hidden');
+          document.getElementById('card-area').innerHTML = `
+            <div class="bg-red-950 border border-red-800 rounded-2xl p-5 text-sm fade-in">
+              <p class="text-red-400 font-medium mb-1">Error generating card</p>
+              <p class="text-gray-400 text-xs">${escapeHtml(err.message)}</p>
+              <p class="text-gray-500 text-xs mt-2">Check your API key in Settings or try a demo scenario.</p>
+            </div>`;
+          btn.disabled = false;
+          btn.textContent = 'Generate Approval Card';
+          return;
+        }
+      }
+
+      currentCard = { input, ...cardData };
+      document.getElementById('analyzing-area').classList.add('hidden');
+      renderCard(cardData);
+
+      btn.disabled = false;
+      btn.textContent = 'Generate Approval Card';
+    }
+
+    // ─── Render card ──────────────────────────────────────────────────────────
+    function renderCard(d) {
+      const riskMap = {
+        low:    { label: '🟢 Low Risk',    badge: 'bg-green-950 text-green-300 border-green-800',  bar: 'bg-green-600', w: 'w-1/3' },
+        medium: { label: '🟡 Medium Risk', badge: 'bg-yellow-950 text-yellow-300 border-yellow-800', bar: 'bg-yellow-500', w: 'w-2/3' },
+        high:   { label: '🔴 High Risk',   badge: 'bg-red-950 text-red-300 border-red-800',         bar: 'bg-red-600',   w: 'w-full' }
+      };
+      const recMap = {
+        approve: { icon: '✓', text: 'Recommended: Approve', cls: 'text-green-400' },
+        reject:  { icon: '✗', text: 'Recommended: Reject',  cls: 'text-red-400' },
+        review:  { icon: '⚠', text: 'Review Before Deciding', cls: 'text-yellow-400' }
+      };
+
+      const r = riskMap[d.risk_level] || riskMap.medium;
+      const rec = recMap[d.recommendation] || recMap.review;
+
+      const html = `
+      <div class="bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden fade-in" id="approval-card">
+
+        <!-- Top: action + risk badge -->
+        <div class="px-5 pt-5 pb-4 border-b border-gray-800">
+          <div class="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Agent Action</div>
+              <h2 class="text-base font-semibold leading-snug">${escapeHtml(d.action_summary)}</h2>
+            </div>
+            <span class="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border ${r.badge}">${r.label}</span>
+          </div>
+          <!-- Risk bar -->
+          <div class="w-full bg-gray-800 rounded-full h-1">
+            <div class="${r.bar} ${r.w} h-1 rounded-full transition-all"></div>
+          </div>
+          <p class="text-xs text-gray-500 mt-1.5">${escapeHtml(d.risk_reasoning)}</p>
+        </div>
+
+        <!-- Agent reasoning -->
+        <div class="px-5 py-4 border-b border-gray-800">
+          <div class="flex items-center gap-1.5 mb-2">
+            <span class="text-xs font-medium text-indigo-400 uppercase tracking-wider">🤖 Why the agent decided this</span>
+          </div>
+          <p class="text-sm text-gray-300 leading-relaxed">${escapeHtml(d.agent_reasoning)}</p>
+        </div>
+
+        <!-- Outcomes grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-0 border-b border-gray-800">
+          <div class="px-5 py-4 border-b sm:border-b-0 sm:border-r border-gray-800">
+            <div class="text-xs font-medium text-green-400 uppercase tracking-wider mb-2">✓ If approved</div>
+            <p class="text-sm text-gray-300 leading-relaxed">${escapeHtml(d.if_approved)}</p>
+          </div>
+          <div class="px-5 py-4">
+            <div class="text-xs font-medium text-red-400 uppercase tracking-wider mb-2">✗ If rejected</div>
+            <p class="text-sm text-gray-300 leading-relaxed">${escapeHtml(d.if_rejected)}</p>
+          </div>
+        </div>
+
+        <!-- Recommendation -->
+        <div class="px-5 py-3 border-b border-gray-800 bg-gray-900">
+          <p class="text-xs ${rec.cls} font-medium">${rec.icon} ${escapeHtml(rec.text)} — <span class="text-gray-400 font-normal">${escapeHtml(d.recommendation_reasoning)}</span></p>
+        </div>
+
+        <!-- Note input -->
+        <div class="px-5 pt-3 pb-2">
+          <textarea id="decision-note" rows="2"
+            placeholder="Add a context note (optional)..."
+            class="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-500 resize-none placeholder-gray-600"></textarea>
+        </div>
+
+        <!-- Decision buttons -->
+        <div class="px-5 pb-5 flex gap-3">
+          <button onclick="decide('approved')"
+            class="flex-1 bg-green-700 hover:bg-green-600 active:scale-95 rounded-xl py-4 font-bold text-white text-base transition-all flex items-center justify-center gap-2">
+            ✓ Approve
+          </button>
+          <button onclick="decide('rejected')"
+            class="flex-1 bg-red-700 hover:bg-red-600 active:scale-95 rounded-xl py-4 font-bold text-white text-base transition-all flex items-center justify-center gap-2">
+            ✗ Reject
+          </button>
+        </div>
+      </div>`;
+
+      document.getElementById('card-area').innerHTML = html;
+      document.getElementById('card-area').classList.remove('hidden');
+      document.getElementById('card-area').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // ─── Decide ───────────────────────────────────────────────────────────────
+    function decide(decision) {
+      const note = document.getElementById('decision-note')?.value.trim() || '';
+      const card = currentCard;
+      const now = new Date();
+
+      decisionLog.push({
+        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        action: card.action_summary,
+        risk: card.risk_level,
+        decision,
+        note
+      });
+
+      const isApprove = decision === 'approved';
+      const icon = isApprove ? '✓' : '✗';
+      const bgBorder = isApprove ? 'bg-green-950 border-green-800' : 'bg-red-950 border-red-800';
+      const textColor = isApprove ? 'text-green-400' : 'text-red-400';
+      const label = isApprove ? 'Action Approved' : 'Action Rejected';
+
+      document.getElementById('card-area').classList.add('hidden');
+      const confirmArea = document.getElementById('confirm-area');
+      confirmArea.innerHTML = `
+        <div class="${bgBorder} border rounded-2xl p-6 text-center fade-in">
+          <div class="text-4xl mb-2">${icon}</div>
+          <div class="${textColor} font-bold text-lg mb-1">${label}</div>
+          <div class="text-gray-400 text-sm mb-1">${escapeHtml(card.action_summary)}</div>
+          ${note ? `<div class="text-gray-500 text-xs mt-1 italic">"${escapeHtml(note)}"</div>` : ''}
+          <div class="text-gray-600 text-xs mt-2">${now.toLocaleDateString()} · ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+          <button onclick="reset()" class="mt-4 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded-xl px-5 py-2 text-sm transition-colors">
+            ← Analyze another action
+          </button>
+        </div>`;
+      confirmArea.classList.remove('hidden');
+
+      updateLog();
+    }
+
+    function reset() {
+      document.getElementById('card-area').classList.add('hidden');
+      document.getElementById('confirm-area').classList.add('hidden');
+      document.getElementById('action-input').value = '';
+      document.getElementById('action-input').focus();
+    }
+
+    // ─── Log ──────────────────────────────────────────────────────────────────
+    function updateLog() {
+      const section = document.getElementById('log-section');
+      const tbody = document.getElementById('log-tbody');
+      const count = document.getElementById('log-count');
+      section.classList.remove('hidden');
+      count.textContent = `${decisionLog.length} decision${decisionLog.length !== 1 ? 's' : ''} this session`;
+
+      tbody.innerHTML = [...decisionLog].reverse().map(e => {
+        const riskColor = e.risk === 'high' ? 'text-red-400' : e.risk === 'medium' ? 'text-yellow-400' : 'text-green-400';
+        const decColor = e.decision === 'approved' ? 'text-green-400' : 'text-red-400';
+        return `
+          <tr class="border-b border-gray-800 last:border-0 hover:bg-gray-800/30 transition-colors">
+            <td class="px-4 py-3 text-gray-500">${e.time}</td>
+            <td class="px-4 py-3 text-gray-300 max-w-xs">
+              <div class="truncate">${escapeHtml(e.action)}</div>
+              ${e.note ? `<div class="text-gray-600 italic mt-0.5">"${escapeHtml(e.note)}"</div>` : ''}
+            </td>
+            <td class="px-4 py-3 ${riskColor} capitalize">${e.risk}</td>
+            <td class="px-4 py-3 ${decColor} font-medium capitalize">${e.decision}</td>
+          </tr>`;
+      }).join('');
+    }
+
+    // ─── Util ─────────────────────────────────────────────────────────────────
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
